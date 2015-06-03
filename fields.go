@@ -41,10 +41,6 @@ type Attr struct {
 	// if it isn't specified.
 	EnvVar string `json:"env-var,omitempty"`
 
-	// Default holds the default value of the attribute
-	// when not specified.
-	Default interface{} `json:"default,omitempty"`
-
 	// Example holds an example value for the attribute
 	// that can be used to produce a plausible-looking
 	// entry for the attribute without necessarily using
@@ -79,6 +75,10 @@ var checkers = map[FieldType]schema.Checker{
 // ValidationSchema returns values suitable for passing to
 // schema.FieldMap to create a schema.Checker that will validate the given fields.
 // It will return an error if the fields are invalid.
+//
+// The Defaults return value will contain entries for all non-mandatory
+// attributes set to schema.Omit. It is the responsibility of the
+// client to set any actual default values as required.
 func (s Fields) ValidationSchema() (schema.Fields, schema.Defaults, error) {
 	fields := make(schema.Fields)
 	defaults := make(schema.Defaults)
@@ -96,16 +96,8 @@ func (s Fields) ValidationSchema() (schema.Fields, schema.Defaults, error) {
 			}
 		}
 		fields[name] = checker
-		if attr.Default == nil {
-			if !attr.Mandatory {
-				defaults[name] = schema.Omit
-			}
-			continue
-		}
-		var err error
-		defaults[name], err = checker.Coerce(attr.Default, nil)
-		if err != nil {
-			return nil, nil, fmt.Errorf("%sinvalid default value: %v", pathPrefix(path), err.Error())
+		if !attr.Mandatory {
+			defaults[name] = schema.Omit
 		}
 	}
 	return fields, defaults, nil

@@ -26,10 +26,17 @@ type Attr struct {
 	// Type holds the type of the attribute value.
 	Type FieldType `json:"type"`
 
+	// Group holds the group that the attribute belongs to.
+	// All attributes within a Fields that have the same Group
+	// attribute are considered to be part of the same group.
+	Group Group `json:"group"`
+
+	// Immutable specifies whether the attribute cannot
+	// be changed once set.
+	Immutable bool
+
 	// Mandatory specifies whether the attribute
-	// must be specified. If Default is also specified,
-	// this field is redundant, as the attribute will be
-	// filled in with the default value if missing.
+	// must be provided.
 	Mandatory bool `json:"mandatory,omitempty"`
 
 	// Secret specifies whether the attribute should be
@@ -45,11 +52,38 @@ type Attr struct {
 	// that can be used to produce a plausible-looking
 	// entry for the attribute without necessarily using
 	// it as a default value.
+	//
+	// TODO if the example holds some special values, use
+	// it as a template to generate initial random values
+	// (for example for admin-password) ?
 	Example interface{} `json:"example,omitempty"`
 
 	// Values holds the set of all possible values of the attribute.
 	Values []interface{} `json:"values,omitempty"`
 }
+
+// Group describes the grouping of attributes.
+type Group string
+
+// The following constants are the initially defined group values.
+const (
+	// JujuGroup groups attributes defined by Juju that may
+	// not be specified by a user.
+	JujuGroup = "juju"
+
+	// EnvironGroup groups attributes that are defined across all
+	// possible Juju environments.
+	EnvironGroup = "environ"
+
+	// AccountGroup groups attributes that define a user account
+	// used by a provider.
+	AccountGroup = "account"
+
+	// ProviderGroup groups attributes defined by the provider
+	// that are not account credentials. This is also the default
+	// group.
+	ProviderGroup = ""
+)
 
 // FieldType describes the type of an attribute value.
 type FieldType string
@@ -137,7 +171,7 @@ func (c oneOfValuesC) Coerce(v interface{}, path []string) (interface{}, error) 
 			return v, nil
 		}
 	}
-	return nil, fmt.Errorf("%sexpected one of %v, got %v", pathPrefix(path), c.vals, v)
+	return nil, fmt.Errorf("%sexpected one of %v, got %#v", pathPrefix(path), c.vals, v)
 }
 
 // pathPrefix returns an error message prefix holding

@@ -5,10 +5,10 @@ package environschema_test
 
 import (
 	"github.com/juju/schema"
-	"gopkg.in/juju/environschema.v1"
-
 	jc "github.com/juju/testing/checkers"
 	gc "gopkg.in/check.v1"
+
+	"gopkg.in/juju/environschema.v1"
 )
 
 type suite struct{}
@@ -43,6 +43,9 @@ var validationSchemaTests = []struct {
 		"boolvalue": {
 			Type: environschema.Tbool,
 		},
+		"attrvalue": {
+			Type: environschema.Tattrs,
+		},
 	},
 	tests: []valueTest{{
 		about: "all fields ok",
@@ -51,12 +54,14 @@ var validationSchemaTests = []struct {
 			"mandatory-stringvalue": "goodbye",
 			"intvalue":              320.0,
 			"boolvalue":             true,
+			"attrvalue":             "a=b c=d",
 		},
 		expectVal: map[string]interface{}{
 			"stringvalue":           "hello",
 			"intvalue":              320,
 			"mandatory-stringvalue": "goodbye",
 			"boolvalue":             true,
+			"attrvalue":             map[string]string{"a": "b", "c": "d"},
 		},
 	}, {
 		about: "non-mandatory fields missing",
@@ -92,6 +97,61 @@ var validationSchemaTests = []struct {
 			"intvalue":              false,
 		},
 		expectError: `intvalue: expected number, got bool\(false\)`,
+	}, {
+		about: "attr type specified as list",
+		val: map[string]interface{}{
+			"mandatory-stringvalue": "goodbye",
+			"attrvalue":             []interface{}{"a=b", "c=d"},
+		},
+		expectVal: map[string]interface{}{
+			"mandatory-stringvalue": "goodbye",
+			"attrvalue":             map[string]string{"a": "b", "c": "d"},
+		},
+	}, {
+		about: "attr type specified as map",
+		val: map[string]interface{}{
+			"mandatory-stringvalue": "goodbye",
+			"attrvalue":             map[interface{}]interface{}{"a": "b", "c": "d"},
+		},
+		expectVal: map[string]interface{}{
+			"mandatory-stringvalue": "goodbye",
+			"attrvalue":             map[string]string{"a": "b", "c": "d"},
+		},
+	}, {
+		about: "invalid attrs string value",
+		val: map[string]interface{}{
+			"mandatory-stringvalue": "goodbye",
+			"attrvalue":             "a=b d f=gh",
+		},
+		expectError: `attrvalue: expected "key=value", got "d"`,
+	}, {
+		about: "invalid attrs list value",
+		val: map[string]interface{}{
+			"mandatory-stringvalue": "goodbye",
+			"attrvalue":             []interface{}{"a=b d", "f"},
+		},
+		expectError: `attrvalue: expected "key=value", got "f"`,
+	}, {
+		about: "attrs list element not coercable",
+		val: map[string]interface{}{
+			"mandatory-stringvalue": "goodbye",
+			"attrvalue":             []interface{}{"a=b d", 123.45},
+		},
+		expectError: `attrvalue\[1\]: expected string, got float64\(123\.45\)`,
+	}, {
+		about: "attrs map element not coercable",
+		val: map[string]interface{}{
+			"mandatory-stringvalue": "goodbye",
+			"attrvalue":             map[interface{}]interface{}{"a": 123, "c": "d"},
+		},
+		expectError: `attrvalue\.a: expected string, got int\(123\)`,
+	}, {
+		about: "unexpected attrs type",
+		val: map[string]interface{}{
+			"mandatory-stringvalue": "goodbye",
+			"attrvalue":             123.45,
+		},
+		expectError: `attrvalue: unexpected type for value, got float64\(123\.45\)`,
 	}},
 }, {
 	about: "enumerated values",
@@ -121,7 +181,7 @@ var validationSchemaTests = []struct {
 			"enumstring": "wrong",
 			"enumint":    20,
 		},
-		expectError: `enumstring: expected one of \[a b\], got wrong`,
+		expectError: `enumstring: expected one of \[a b\], got "wrong"`,
 	}, {
 		about: "int value not in values",
 		val: map[string]interface{}{

@@ -7,8 +7,12 @@ package environschema // import "gopkg.in/juju/environschema.v1"
 
 import (
 	"fmt"
-	"github.com/juju/schema"
+	"reflect"
 	"strings"
+
+	"github.com/juju/errors"
+	"github.com/juju/schema"
+	"github.com/juju/utils/keyvalues"
 )
 
 // What to do about reading content from paths?
@@ -93,12 +97,14 @@ const (
 	Tstring FieldType = "string"
 	Tbool   FieldType = "bool"
 	Tint    FieldType = "int"
+	Tattrs  FieldType = "attrs"
 )
 
 var checkers = map[FieldType]schema.Checker{
 	Tstring: schema.String(),
 	Tbool:   schema.Bool(),
 	Tint:    schema.ForceInt(),
+	Tattrs:  attrsC{},
 }
 
 // Alternative possibilities to ValidationSchema to bear in mind for
@@ -172,6 +178,57 @@ func (c oneOfValuesC) Coerce(v interface{}, path []string) (interface{}, error) 
 		}
 	}
 	return nil, fmt.Errorf("%sexpected one of %v, got %#v", pathPrefix(path), c.vals, v)
+}
+
+type attrsC struct{}
+
+var (
+	attrMapChecker   = schema.Map(schema.String(), schema.String())
+	attrSliceChecker = schema.List(schema.String())
+)
+
+func (c attrsC) Coerce(v interface{}, path []string) (interface{}, error) {
+	// TODO consider allowing only the map variant.
+	switch reflect.TypeOf(v).Kind() {
+	case reflect.String:
+		s, err := schema.String().Coerce(v, path)
+		if err != nil {
+			return nil, errors.Mask(err)
+		}
+		result, err := keyvalues.Parse(strings.Fields(s.(string)), true)
+		if err != nil {
+			return nil, fmt.Errorf("%s%v", pathPrefix(path), err)
+		}
+		return result, nil
+	case reflect.Slice:
+		slice0, err := attrSliceChecker.Coerce(v, path)
+		if err != nil {
+			return nil, errors.Mask(err)
+		}
+		slice := slice0.([]interface{})
+		fields := make([]string, len(slice))
+		for i, f := range slice {
+			fields[i] = f.(string)
+		}
+		result, err := keyvalues.Parse(fields, true)
+		if err != nil {
+			return nil, fmt.Errorf("%s%v", pathPrefix(path), err)
+		}
+		return result, nil
+	case reflect.Map:
+		imap0, err := attrMapChecker.Coerce(v, path)
+		if err != nil {
+			return nil, errors.Mask(err)
+		}
+		imap := imap0.(map[interface{}]interface{})
+		result := make(map[string]string)
+		for k, v := range imap {
+			result[k.(string)] = v.(string)
+		}
+		return result, nil
+	default:
+		return nil, errors.Errorf("%sunexpected type for value, got %T(%v)", pathPrefix(path), v, v)
+	}
 }
 
 // pathPrefix returns an error message prefix holding

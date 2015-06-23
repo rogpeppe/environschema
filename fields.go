@@ -37,7 +37,7 @@ type Attr struct {
 
 	// Immutable specifies whether the attribute cannot
 	// be changed once set.
-	Immutable bool
+	Immutable bool `json:"immutable"`
 
 	// Mandatory specifies whether the attribute
 	// must be provided.

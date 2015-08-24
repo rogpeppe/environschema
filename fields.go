@@ -52,6 +52,11 @@ type Attr struct {
 	// if it isn't specified.
 	EnvVar string `json:"env-var,omitempty"`
 
+	// EnvVars holds additional environment
+	// variables to be used if the value in EnvVar is
+	// not available, from highest to lowest priority.
+	EnvVars []string `json:"env-vars,omitempty"`
+
 	// Example holds an example value for the attribute
 	// that can be used to produce a plausible-looking
 	// entry for the attribute without necessarily using

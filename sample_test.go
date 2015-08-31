@@ -39,11 +39,11 @@ var sampleYAMLTests = []struct {
 		},
 		"bar": {
 			Type:        environschema.Tint,
-			Description: "bar is a number.\nWith a long description that contains newlines. And quite a bit more text that will be folded because it is longer than 80 characters",
+			Description: "bar is a number.\nWith a long description that contains newlines. And quite a bit more text that will be folded because it is longer than 80 characters.",
 		},
 		"baz": {
 			Type:        environschema.Tbool,
-			Description: "baz is a bool with no full stop in description",
+			Description: "baz is a bool.",
 		},
 		"attrs": {
 			Type:        environschema.Tattrs,
@@ -51,7 +51,7 @@ var sampleYAMLTests = []struct {
 		},
 	},
 	expect: `
-		|# attrs is an attribute list.
+		|# attrs is an attribute list
 		|#
 		|attrs:
 		|  arble: bletch
@@ -62,7 +62,7 @@ var sampleYAMLTests = []struct {
 		|#
 		|bar: 1243
 		|
-		|# baz is a bool with no full stop in description.
+		|# baz is a bool.
 		|#
 		|baz: false
 		|
@@ -257,7 +257,7 @@ var sampleYAMLTests = []struct {
 		},
 	},
 	expect: `
-		|# With a description.
+		|# With a description
 		|#
 		|# This attribute is considered secret.
 		|#
@@ -267,7 +267,7 @@ var sampleYAMLTests = []struct {
 		|#
 		|# b: ""
 		|
-		|# With a description.
+		|# With a description
 		|#
 		|# Default value taken from $VAR.
 		|#

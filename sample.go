@@ -32,7 +32,7 @@ func SampleYAML(w io.Writer, indent int, attrs map[string]interface{}, fields Fi
 	sort.Sort(orderedFields)
 	for i, f := range orderedFields {
 		if i > 0 {
-			fmt.Fprintf(w, "\n")
+			w.Write(nl)
 		}
 		writeSampleDescription(w, f.Attr, indentStr+"# ")
 		val, ok := attrs[f.name]
@@ -54,6 +54,13 @@ func SampleYAML(w io.Writer, indent int, attrs map[string]interface{}, fields Fi
 
 const textWidth = 80
 
+var (
+	space = []byte(" ")
+	nl    = []byte("\n")
+)
+
+// writeSampleDescription writes the given attribute to w
+// prefixed by the given indentation string.
 func writeSampleDescription(w io.Writer, f Attr, indent string) {
 	previousText := false
 
@@ -69,9 +76,6 @@ func writeSampleDescription(w io.Writer, f Attr, indent string) {
 	descr := strings.TrimSpace(f.Description)
 	if descr != "" {
 		section()
-		if !strings.HasSuffix(descr, ".") {
-			descr += "."
-		}
 		doc.ToText(w, descr, indent, "    ", textWidth-len(indent))
 	}
 	vars := make([]string, 0, len(f.EnvVars)+1)
@@ -101,10 +105,13 @@ func writeSampleDescription(w io.Writer, f Attr, indent string) {
 	section()
 }
 
+// emptyLine writes an empty line prefixed with the given
+// indent, ensuring that it doesn't have any trailing white space.
 func emptyLine(w io.Writer, indent string) {
 	fmt.Fprintf(w, "%s\n", strings.TrimRightFunc(indent, unicode.IsSpace))
 }
 
+// wordyList formats the given slice in the form "x, y or z".
 func wordyList(words []string) string {
 	if len(words) == 0 {
 		return ""
@@ -132,8 +139,8 @@ func (f fieldsByGroup) Len() int {
 	return len(f)
 }
 
-func (f fieldsByGroup) Swap(i, j int) {
-	f[i], f[j] = f[j], f[i]
+func (f fieldsByGroup) Swap(i0, i1 int) {
+	f[i0], f[i1] = f[i1], f[i0]
 }
 
 func (f fieldsByGroup) Less(i0, i1 int) bool {
@@ -144,11 +151,6 @@ func (f fieldsByGroup) Less(i0, i1 int) bool {
 	}
 	return f0.name < f1.name
 }
-
-var (
-	space = []byte(" ")
-	nl    = []byte("\n")
-)
 
 // indentVal writes the given YAML-formatted value x to w and prefixing
 // the second and subsequent lines with the given ident.

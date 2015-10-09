@@ -1,7 +1,7 @@
 // Copyright 2015 Canonical Ltd.
 // Licensed under the LGPLv3, see LICENCE file for details.
 
-// Package form provides ways to fill out forms corresponding to
+// Package form provides ways to create and process forms based on
 // environschema schemas.
 package form
 
@@ -17,6 +17,23 @@ import (
 	"gopkg.in/errgo.v1"
 	"gopkg.in/juju/environschema.v1"
 )
+
+// Form describes a form based on a schema.
+type Form struct {
+	// Title holds the title of the form, giving contextual
+	// information for the fields.
+	Title string
+
+	// Fields holds the fields that make up the body of the form.
+	Fields environschema.Fields
+}
+
+// Filler represents an object that can fill out a Form. The the form is
+// described in f. The returned value should be compatible with the
+// schema defined in f.Fields.
+type Filler interface {
+	Fill(f Form) (map[string]interface{}, error)
+}
 
 // PromptingFiller fills out a set of environschema fields by prompting
 // the user for each field in sequence.
@@ -42,24 +59,33 @@ type PromptingFiller struct {
 // validated against the field's type. If the returned value does not
 // validate correctly it will be prompted again up to MaxTries before
 // giving up.
-func (f *PromptingFiller) Fill(fields environschema.Fields) (map[string]interface{}, error) {
-	fs := make(fieldSlice, 0, len(fields))
-	for k, v := range fields {
+func (f *PromptingFiller) Fill(form Form) (map[string]interface{}, error) {
+	if form.Title != "" {
+		prompter := f.Prompter
+		if prompter == nil {
+			prompter = DefaultPrompter
+		}
+		if err := prompter.ShowTitle(form.Title); err != nil {
+			return nil, errgo.Notef(err, "cannot show title")
+		}
+	}
+	fs := make(fieldSlice, 0, len(form.Fields))
+	for k, v := range form.Fields {
 		fs = append(fs, field{
 			name:  k,
 			attrs: v,
 		})
 	}
 	sort.Sort(fs)
-	form := make(map[string]interface{}, len(fields))
+	values := make(map[string]interface{}, len(form.Fields))
 	for _, field := range fs {
 		var err error
-		form[field.name], err = f.prompt(field.name, field.attrs)
+		values[field.name], err = f.prompt(field.name, field.attrs)
 		if err != nil {
 			return nil, errgo.Notef(err, "cannot complete form")
 		}
 	}
-	return form, nil
+	return values, nil
 }
 
 type field struct {
@@ -126,10 +152,16 @@ func (f *PromptingFiller) prompt(name string, attr environschema.Attr) (interfac
 	return nil, errgo.New("too many invalid inputs")
 }
 
-// Prompt prompts for the value of the given named attribute.
-// It is always acceptable for an implementation to return a string,
-// which will be coerced to the appropriate type if possible.
+// Prompter is the interface used by the PromptingFiller. It is used to
+// prompt the user for a sequence of form fields and obtain their values.
 type Prompter interface {
+	// ShowTitle displays a form title. It will only be called if the title
+	// of the form is non-empty.
+	ShowTitle(title string) error
+
+	// Prompt prompts for the value of the given named attribute.
+	// It is always acceptable for an implementation to return a string,
+	// which will be coerced to the appropriate type if possible.
 	Prompt(name string, attr environschema.Attr) (interface{}, error)
 }
 
@@ -147,12 +179,9 @@ type IOPrompter struct {
 	Out io.Writer
 }
 
-// Prompt implements Prompter. The prompt is generated from attr based on
-// Description field. DefaultFromEnv is used to attempt to find a default
-// value for the attribute. If attr.Secret is true then any default value
-// will be obscured with *s and if In is a terminal local echo will be
-// turned off. Input is read from In until the first \n. If the entered
-// value is "" and there is a default then the default will be returned.
+// Prompt implements Prompter.Prompt by writing the field information to
+// p.Out, then reading input from p.In. If p.In is a terminal and the
+// attribute is secret, echo will be disabled.
 func (p IOPrompter) Prompt(name string, attr environschema.Attr) (interface{}, error) {
 	prompt := attr.Description
 	def := DefaultFromEnv(attr)
@@ -221,4 +250,13 @@ func DefaultFromEnv(attr environschema.Attr) string {
 		}
 	}
 	return ""
+}
+
+// ShowTitle implements Prompter.ShowTitle by printing the title to
+// p.Out.
+func (p IOPrompter) ShowTitle(title string) error {
+	if _, err := fmt.Fprintln(p.Out, title); err != nil {
+		return errgo.Notef(err, "cannot show title")
+	}
+	return nil
 }

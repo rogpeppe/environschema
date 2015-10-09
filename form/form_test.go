@@ -22,6 +22,8 @@ type formSuite struct {
 
 var _ = gc.Suite(&formSuite{})
 
+var _ form.Filler = (*form.PromptingFiller)(nil)
+
 type prompt struct {
 	name string
 	attr environschema.Attr
@@ -29,6 +31,7 @@ type prompt struct {
 
 var ioPrompterTests = []struct {
 	about        string
+	title        string
 	prompts      []prompt
 	input        string
 	environment  map[string]string
@@ -118,6 +121,23 @@ var ioPrompterTests = []struct {
 		"A",
 	},
 	expectOutput: "A: ",
+}, {
+	about:        "title",
+	title:        "Test Title",
+	expectOutput: "Test Title\n",
+}, {
+	about: "title with prompts",
+	title: "Test Title",
+	prompts: []prompt{{
+		attr: environschema.Attr{
+			Description: "A",
+		},
+	}},
+	input: "A\n",
+	expect: []string{
+		"A",
+	},
+	expectOutput: "Test Title\nA: ",
 }}
 
 func (s *formSuite) TestIOPrompter(c *gc.C) {
@@ -131,6 +151,10 @@ func (s *formSuite) TestIOPrompter(c *gc.C) {
 			prompter := form.IOPrompter{
 				In:  strings.NewReader(test.input),
 				Out: outBuf,
+			}
+			if test.title != "" {
+				err := prompter.ShowTitle(test.title)
+				c.Assert(err, gc.IsNil)
 			}
 			for j, p := range test.prompts {
 				result, err := prompter.Prompt(p.name, p.attr)
@@ -147,48 +171,71 @@ func (s *formSuite) TestIOPrompter(c *gc.C) {
 	}
 }
 
+func (s *formSuite) TestIOPrompterWriteErrors(c *gc.C) {
+	prompter := form.IOPrompter{
+		In:  nil,
+		Out: errorWriter{},
+	}
+	err := prompter.ShowTitle("title")
+	c.Assert(err, gc.ErrorMatches, "cannot show title: test")
+	_, err = prompter.Prompt("attr", environschema.Attr{
+		Description: "A",
+	})
+	c.Assert(err, gc.ErrorMatches, "cannot write prompt: test")
+}
+
+type errorWriter struct{}
+
+func (w errorWriter) Write([]byte) (n int, err error) {
+	return 0, errgo.New("test")
+}
+
 var promptingFillerTests = []struct {
-	about         string
-	schema        environschema.Fields
-	maxTries      int
-	responses     []response
-	expectPrompts []prompt
-	expectResult  map[string]interface{}
-	expectError   string
+	about          string
+	form           form.Form
+	maxTries       int
+	responses      []response
+	showTitleError error
+	expectPrompts  []prompt
+	expectResult   map[string]interface{}
+	expectError    string
+	expectTitle    string
 }{{
 	about: "correct ordering",
-	schema: environschema.Fields{
-		"a1": environschema.Attr{
-			Group:       "A",
-			Description: "a1",
-			Type:        environschema.Tstring,
-		},
-		"b1": environschema.Attr{
-			Group:       "A",
-			Description: "b1",
-			Type:        environschema.Tstring,
-			Secret:      true,
-		},
-		"c1": environschema.Attr{
-			Group:       "A",
-			Description: "c1",
-			Type:        environschema.Tstring,
-		},
-		"a2": environschema.Attr{
-			Group:       "B",
-			Description: "a2",
-			Type:        environschema.Tstring,
-		},
-		"b2": environschema.Attr{
-			Group:       "B",
-			Description: "b2",
-			Type:        environschema.Tstring,
-			Secret:      true,
-		},
-		"c2": environschema.Attr{
-			Group:       "B",
-			Description: "c2",
-			Type:        environschema.Tstring,
+	form: form.Form{
+		Fields: environschema.Fields{
+			"a1": environschema.Attr{
+				Group:       "A",
+				Description: "a1",
+				Type:        environschema.Tstring,
+			},
+			"b1": environschema.Attr{
+				Group:       "A",
+				Description: "b1",
+				Type:        environschema.Tstring,
+				Secret:      true,
+			},
+			"c1": environschema.Attr{
+				Group:       "A",
+				Description: "c1",
+				Type:        environschema.Tstring,
+			},
+			"a2": environschema.Attr{
+				Group:       "B",
+				Description: "a2",
+				Type:        environschema.Tstring,
+			},
+			"b2": environschema.Attr{
+				Group:       "B",
+				Description: "b2",
+				Type:        environschema.Tstring,
+				Secret:      true,
+			},
+			"c2": environschema.Attr{
+				Group:       "B",
+				Description: "c2",
+				Type:        environschema.Tstring,
+			},
 		},
 	},
 	responses: []response{{
@@ -259,16 +306,18 @@ var promptingFillerTests = []struct {
 	}},
 }, {
 	about: "bool type",
-	schema: environschema.Fields{
-		"a1": environschema.Attr{
-			Group:       "A",
-			Description: "a1",
-			Type:        environschema.Tbool,
-		},
-		"b1": environschema.Attr{
-			Group:       "A",
-			Description: "b1",
-			Type:        environschema.Tbool,
+	form: form.Form{
+		Fields: environschema.Fields{
+			"a1": environschema.Attr{
+				Group:       "A",
+				Description: "a1",
+				Type:        environschema.Tbool,
+			},
+			"b1": environschema.Attr{
+				Group:       "A",
+				Description: "b1",
+				Type:        environschema.Tbool,
+			},
 		},
 	},
 	responses: []response{{
@@ -297,21 +346,23 @@ var promptingFillerTests = []struct {
 	}},
 }, {
 	about: "int type",
-	schema: environschema.Fields{
-		"a1": environschema.Attr{
-			Group:       "A",
-			Description: "a1",
-			Type:        environschema.Tint,
-		},
-		"b1": environschema.Attr{
-			Group:       "A",
-			Description: "b1",
-			Type:        environschema.Tint,
-		},
-		"c1": environschema.Attr{
-			Group:       "A",
-			Description: "c1",
-			Type:        environschema.Tint,
+	form: form.Form{
+		Fields: environschema.Fields{
+			"a1": environschema.Attr{
+				Group:       "A",
+				Description: "a1",
+				Type:        environschema.Tint,
+			},
+			"b1": environschema.Attr{
+				Group:       "A",
+				Description: "b1",
+				Type:        environschema.Tint,
+			},
+			"c1": environschema.Attr{
+				Group:       "A",
+				Description: "c1",
+				Type:        environschema.Tint,
+			},
 		},
 	},
 	responses: []response{{
@@ -350,11 +401,13 @@ var promptingFillerTests = []struct {
 	}},
 }, {
 	about: "too many bad responses",
-	schema: environschema.Fields{
-		"a1": environschema.Attr{
-			Group:       "A",
-			Description: "a1",
-			Type:        environschema.Tint,
+	form: form.Form{
+		Fields: environschema.Fields{
+			"a1": environschema.Attr{
+				Group:       "A",
+				Description: "a1",
+				Type:        environschema.Tint,
+			},
 		},
 	},
 	responses: []response{{
@@ -389,11 +442,13 @@ var promptingFillerTests = []struct {
 	expectError: "cannot complete form: too many invalid inputs",
 }, {
 	about: "too many bad responses fewer tries",
-	schema: environschema.Fields{
-		"a1": environschema.Attr{
-			Group:       "A",
-			Description: "a1",
-			Type:        environschema.Tint,
+	form: form.Form{
+		Fields: environschema.Fields{
+			"a1": environschema.Attr{
+				Group:       "A",
+				Description: "a1",
+				Type:        environschema.Tint,
+			},
 		},
 	},
 	maxTries: 1,
@@ -411,11 +466,13 @@ var promptingFillerTests = []struct {
 	expectError: "cannot complete form: too many invalid inputs",
 }, {
 	about: "bad then good input",
-	schema: environschema.Fields{
-		"a1": environschema.Attr{
-			Group:       "A",
-			Description: "a1",
-			Type:        environschema.Tint,
+	form: form.Form{
+		Fields: environschema.Fields{
+			"a1": environschema.Attr{
+				Group:       "A",
+				Description: "a1",
+				Type:        environschema.Tint,
+			},
 		},
 	},
 	responses: []response{{
@@ -452,11 +509,13 @@ var promptingFillerTests = []struct {
 	},
 }, {
 	about: "prompt error",
-	schema: environschema.Fields{
-		"a1": environschema.Attr{
-			Group:       "A",
-			Description: "a1",
-			Type:        environschema.Tstring,
+	form: form.Form{
+		Fields: environschema.Fields{
+			"a1": environschema.Attr{
+				Group:       "A",
+				Description: "a1",
+				Type:        environschema.Tstring,
+			},
 		},
 	},
 	responses: []response{{
@@ -473,11 +532,13 @@ var promptingFillerTests = []struct {
 	expectError: "cannot complete form: cannot get input: test error",
 }, {
 	about: "unsupported type",
-	schema: environschema.Fields{
-		"a1": environschema.Attr{
-			Group:       "A",
-			Description: "a1",
-			Type:        environschema.Tattrs,
+	form: form.Form{
+		Fields: environschema.Fields{
+			"a1": environschema.Attr{
+				Group:       "A",
+				Description: "a1",
+				Type:        environschema.Tattrs,
+			},
 		},
 	},
 	responses: []response{{
@@ -494,16 +555,18 @@ var promptingFillerTests = []struct {
 	expectError: `cannot complete form: unsupported attribute type "attrs"`,
 }, {
 	about: "bool type with bool from prompt",
-	schema: environschema.Fields{
-		"a1": environschema.Attr{
-			Group:       "A",
-			Description: "a1",
-			Type:        environschema.Tbool,
-		},
-		"b1": environschema.Attr{
-			Group:       "A",
-			Description: "b1",
-			Type:        environschema.Tbool,
+	form: form.Form{
+		Fields: environschema.Fields{
+			"a1": environschema.Attr{
+				Group:       "A",
+				Description: "a1",
+				Type:        environschema.Tbool,
+			},
+			"b1": environschema.Attr{
+				Group:       "A",
+				Description: "b1",
+				Type:        environschema.Tbool,
+			},
 		},
 	},
 	responses: []response{{
@@ -532,21 +595,23 @@ var promptingFillerTests = []struct {
 	}},
 }, {
 	about: "int type with int from prompt",
-	schema: environschema.Fields{
-		"a1": environschema.Attr{
-			Group:       "A",
-			Description: "a1",
-			Type:        environschema.Tint,
-		},
-		"b1": environschema.Attr{
-			Group:       "A",
-			Description: "b1",
-			Type:        environschema.Tint,
-		},
-		"c1": environschema.Attr{
-			Group:       "A",
-			Description: "c1",
-			Type:        environschema.Tint,
+	form: form.Form{
+		Fields: environschema.Fields{
+			"a1": environschema.Attr{
+				Group:       "A",
+				Description: "a1",
+				Type:        environschema.Tint,
+			},
+			"b1": environschema.Attr{
+				Group:       "A",
+				Description: "b1",
+				Type:        environschema.Tint,
+			},
+			"c1": environschema.Attr{
+				Group:       "A",
+				Description: "c1",
+				Type:        environschema.Tint,
+			},
 		},
 	},
 	responses: []response{{
@@ -583,19 +648,82 @@ var promptingFillerTests = []struct {
 			Type:        environschema.Tint,
 		},
 	}},
+}, {
+	about: "title",
+	form: form.Form{
+		Title: "Test Title",
+		Fields: environschema.Fields{
+			"a1": environschema.Attr{
+				Group:       "A",
+				Description: "a1",
+				Type:        environschema.Tbool,
+			},
+			"b1": environschema.Attr{
+				Group:       "A",
+				Description: "b1",
+				Type:        environschema.Tbool,
+			},
+		},
+	},
+	responses: []response{{
+		data: true,
+	}, {
+		data: false,
+	}},
+	expectResult: map[string]interface{}{
+		"a1": true,
+		"b1": false,
+	},
+	expectPrompts: []prompt{{
+		name: "a1",
+		attr: environschema.Attr{
+			Group:       "A",
+			Description: "a1",
+			Type:        environschema.Tbool,
+		},
+	}, {
+		name: "b1",
+		attr: environschema.Attr{
+			Group:       "A",
+			Description: "b1",
+			Type:        environschema.Tbool,
+		},
+	}},
+	expectTitle: "Test Title",
+}, {
+	about: "title error",
+	form: form.Form{
+		Title: "Test Title",
+		Fields: environschema.Fields{
+			"a1": environschema.Attr{
+				Group:       "A",
+				Description: "a1",
+				Type:        environschema.Tbool,
+			},
+			"b1": environschema.Attr{
+				Group:       "A",
+				Description: "b1",
+				Type:        environschema.Tbool,
+			},
+		},
+	},
+	showTitleError: errgo.New("test error"),
+	expectError:    "cannot show title: test error",
+	expectTitle:    "Test Title",
 }}
 
 func (s *formSuite) TestPromptingFiller(c *gc.C) {
 	for i, test := range promptingFillerTests {
 		c.Logf("%d. %s", i, test.about)
 		p := &testPrompter{
-			responses: test.responses,
+			titleError: test.showTitleError,
+			responses:  test.responses,
 		}
 		f := form.PromptingFiller{
 			Prompter: p,
 			MaxTries: test.maxTries,
 		}
-		result, err := f.Fill(test.schema)
+		result, err := f.Fill(test.form)
 		if test.expectError != "" {
 			c.Assert(err, gc.ErrorMatches, test.expectError)
 		} else {
@@ -603,6 +731,12 @@ func (s *formSuite) TestPromptingFiller(c *gc.C) {
 		}
 		c.Assert(result, jc.DeepEquals, test.expectResult)
 		c.Assert(p.prompts, jc.DeepEquals, test.expectPrompts)
+		if test.expectTitle == "" {
+			c.Assert(p.title, gc.IsNil)
+		} else {
+			c.Assert(p.title, gc.NotNil)
+			c.Assert(*p.title, gc.Equals, test.expectTitle)
+		}
 	}
 }
 
@@ -612,8 +746,15 @@ type response struct {
 }
 
 type testPrompter struct {
-	prompts   []prompt
-	responses []response
+	title      *string
+	titleError error
+	prompts    []prompt
+	responses  []response
+}
+
+func (p *testPrompter) ShowTitle(title string) error {
+	p.title = &title
+	return p.titleError
 }
 
 func (p *testPrompter) Prompt(name string, attr environschema.Attr) (interface{}, error) {

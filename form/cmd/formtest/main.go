@@ -27,28 +27,30 @@ The entered values will be displayed at the end.
 `)
 	os.Setenv("PIN", "1234")
 	os.Setenv("EMAIL", "user@example.com")
-	r, err := f.Fill(environschema.Fields{
-		"name": environschema.Attr{
-			Description: "Name",
-			Type:        environschema.Tstring,
-		},
-		"email": environschema.Attr{
-			Description: "e-mail",
-			Type:        environschema.Tstring,
-			EnvVar:      "EMAIL",
-		},
-		"password": environschema.Attr{
-			Description: "Password",
-			Type:        environschema.Tstring,
-			Secret:      true,
-		},
-		"pin": environschema.Attr{
-			Description: "PIN",
-			Type:        environschema.Tint,
-			EnvVar:      "PIN",
-			Secret:      true,
-		},
-	})
+	r, err := f.Fill(form.Form{
+		Title: "Test Form",
+		Fields: environschema.Fields{
+			"name": environschema.Attr{
+				Description: "Name",
+				Type:        environschema.Tstring,
+			},
+			"email": environschema.Attr{
+				Description: "e-mail",
+				Type:        environschema.Tstring,
+				EnvVar:      "EMAIL",
+			},
+			"password": environschema.Attr{
+				Description: "Password",
+				Type:        environschema.Tstring,
+				Secret:      true,
+			},
+			"pin": environschema.Attr{
+				Description: "PIN",
+				Type:        environschema.Tint,
+				EnvVar:      "PIN",
+				Secret:      true,
+			},
+		}})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	f := &form.PromptingFiller{}
+	var f form.IOFiller
 	fmt.Println(`formtest:
 This is a simple interactive test program for environschema forms.
 Expect the prompts to be as follows:

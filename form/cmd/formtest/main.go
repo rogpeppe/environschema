@@ -40,7 +40,7 @@ The entered values will be displayed at the end.
 			"name": environschema.Attr{
 				Description: "Your full name.",
 				Type:        environschema.Tstring,
-				Mandatory: true,
+				Mandatory:   true,
 			},
 			"email": environschema.Attr{
 				Description: "Your email address.",
@@ -51,7 +51,7 @@ The entered values will be displayed at the end.
 				Description: "Your very secret password.",
 				Type:        environschema.Tstring,
 				Secret:      true,
-				Mandatory: true,
+				Mandatory:   true,
 			},
 			"pin": environschema.Attr{
 				Description: "Some PIN that you have probably forgotten.",

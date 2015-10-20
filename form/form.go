@@ -3,6 +3,9 @@
 
 // Package form provides ways to create and process forms based on
 // environschema schemas.
+//
+// The API exposed by this package is not currently subject
+// to the environschema.v1 API compatibility guarantees.
 package form
 
 import (
@@ -35,73 +38,36 @@ type Filler interface {
 	Fill(f Form) (map[string]interface{}, error)
 }
 
-// PromptingFiller fills out a set of environschema fields by prompting
-// the user for each field in sequence.
-type PromptingFiller struct {
-	// The Prompter to use to get the responses. If this is nil then
-	// DefaultPrompter will be used.
-	Prompter Prompter
-
-	// MaxTries is the number of times to attempt to get a valid
-	// response when prompting. If this is 0 then the default of 3
-	// attempts will be used.
-	MaxTries int
-}
-
-// Fill processes fields by first sorting them and then prompting for the
-// value of each one in turn.
-//
-// The fields are sorted by first by group name. Those in the same group
-// are sorted so that secret fields come after non-secret ones, finally
-// the fields are sorted by description.
-//
-// Each field will be prompted for, then the returned value will be
-// validated against the field's type. If the returned value does not
-// validate correctly it will be prompted again up to MaxTries before
-// giving up.
-func (f *PromptingFiller) Fill(form Form) (map[string]interface{}, error) {
-	if form.Title != "" {
-		prompter := f.Prompter
-		if prompter == nil {
-			prompter = DefaultPrompter
-		}
-		if err := prompter.ShowTitle(form.Title); err != nil {
-			return nil, errgo.Notef(err, "cannot show title")
-		}
-	}
-	fs := make(fieldSlice, 0, len(form.Fields))
-	for k, v := range form.Fields {
-		fs = append(fs, field{
-			name:  k,
-			attrs: v,
+// SortedFields returns the given fields sorted first by group name.
+// Those in the same group are sorted so that secret fields come after
+// non-secret ones, finally the fields are sorted by description.
+func SortedFields(fields environschema.Fields) []NamedAttr {
+	fs := make(namedAttrSlice, 0, len(fields))
+	for k, v := range fields {
+		fs = append(fs, NamedAttr{
+			Name: k,
+			Attr: v,
 		})
 	}
 	sort.Sort(fs)
-	values := make(map[string]interface{}, len(form.Fields))
-	for _, field := range fs {
-		var err error
-		values[field.name], err = f.prompt(field.name, field.attrs)
-		if err != nil {
-			return nil, errgo.Notef(err, "cannot complete form")
-		}
-	}
-	return values, nil
+	return fs
 }
 
-type field struct {
-	name  string
-	attrs environschema.Attr
+// NamedAttr associates a name with an environschema.Field.
+type NamedAttr struct {
+	Name string
+	environschema.Attr
 }
 
-type fieldSlice []field
+type namedAttrSlice []NamedAttr
 
-func (s fieldSlice) Len() int {
+func (s namedAttrSlice) Len() int {
 	return len(s)
 }
 
-func (s fieldSlice) Less(i, j int) bool {
-	a1 := s[i].attrs
-	a2 := s[j].attrs
+func (s namedAttrSlice) Less(i, j int) bool {
+	a1 := &s[i]
+	a2 := &s[j]
 	if a1.Group != a2.Group {
 		return a1.Group < a2.Group
 	}
@@ -111,105 +77,136 @@ func (s fieldSlice) Less(i, j int) bool {
 	return a1.Description < a2.Description
 }
 
-func (s fieldSlice) Swap(i, j int) {
+func (s namedAttrSlice) Swap(i, j int) {
 	s[i], s[j] = s[j], s[i]
 }
 
-func (f *PromptingFiller) prompt(name string, attr environschema.Attr) (interface{}, error) {
-	prompter := f.Prompter
-	if prompter == nil {
-		prompter = DefaultPrompter
+// IOFiller is a Filler based around an io.Reader and io.Writer.
+type IOFiller struct {
+	// In is used to read responses from the user. If this is nil,
+	// then os.Stdin will be used.
+	In io.Reader
+
+	// Out is used to write prompts and information to the user. If
+	// this is nil, then os.Stdout will be used.
+	Out io.Writer
+
+	// MaxTries is the number of times to attempt to get a valid
+	// response when prompting. If this is 0 then the default of 3
+	// attempts will be used.
+	MaxTries int
+}
+
+// Fill implements Filler.Fill by writing the field information to
+// f.Out, then reading input from f.In. If f.In is a terminal and the
+// attribute is secret, echo will be disabled.
+//
+// Fill processes fields by first sorting them and then prompting for
+// the value of each one in turn.
+//
+// The fields are sorted by first by group name. Those in the same group
+// are sorted so that secret fields come after non-secret ones, finally
+// the fields are sorted by description.
+//
+// Each field will be prompted for, then the returned value will be
+// validated against the field's type. If the returned value does not
+// validate correctly it will be prompted again up to MaxTries before
+// giving up.
+func (f IOFiller) Fill(form Form) (map[string]interface{}, error) {
+	if f.MaxTries == 0 {
+		f.MaxTries = 3
 	}
-	tries := f.MaxTries
-	if tries == 0 {
-		tries = 3
+	if f.In == nil {
+		f.In = os.Stdin
 	}
-	for i := 0; i < tries; i++ {
-		val, err := prompter.Prompt(name, attr)
+	if f.Out == nil {
+		f.Out = os.Stdout
+	}
+	fields := SortedFields(form.Fields)
+	values := make(map[string]interface{}, len(fields))
+	checkers := make([]schema.Checker, len(fields))
+	for i, field := range fields {
+		checker, err := field.Checker()
 		if err != nil {
-			return nil, errgo.Notef(err, "cannot get input")
+			return nil, errgo.Notef(err, "invalid field %s", field.Name)
 		}
-		switch attr.Type {
-		case environschema.Tbool:
-			b, err := schema.Bool().Coerce(val, nil)
-			if err == nil {
-				return b, nil
-			}
-		case environschema.Tint:
-			i, err := schema.Int().Coerce(val, nil)
-			if err == nil {
-				return i, nil
-			}
-		case environschema.Tstring:
-			i, err := schema.String().Coerce(val, nil)
-			if err == nil {
-				return i, nil
-			}
-		default:
-			return nil, errgo.Newf("unsupported attribute type %q", attr.Type)
+		checkers[i] = checker
+	}
+	if form.Title != "" {
+		f.printf("%s\n", form.Title)
+	}
+	for i, field := range fields {
+		v, err := f.promptLoop(field, checkers[i])
+		if err != nil {
+			return nil, errgo.Notef(err, "cannot complete form")
 		}
+		if v != nil {
+			values[field.Name] = v
+		}
+	}
+	return values, nil
+}
+
+func (f IOFiller) promptLoop(attr NamedAttr, checker schema.Checker) (interface{}, error) {
+	def, envVar := DefaultFromEnv(attr.Attr)
+	var defVal interface{}
+	if def != "" {
+		v, err := checker.Coerce(def, nil)
+		if err != nil {
+			f.printf("warning: invalid default value in $%s\n", envVar)
+			def = ""
+		} else {
+			defVal = v
+		}
+	}
+	for i := 0; i < f.MaxTries; i++ {
+		vStr, err := f.prompt(attr, checker, def)
+		if err != nil {
+			return nil, errgo.Mask(err)
+		}
+		if vStr == "" {
+			if defVal != nil {
+				return defVal, nil
+			}
+			if !attr.Mandatory {
+				// No value entered but the attribute is not mandatory.
+				return nil, nil
+			}
+		}
+		v, err := checker.Coerce(vStr, nil)
+		if err == nil {
+			return v, nil
+		}
+		f.printf("invalid input: %v\n", err)
 	}
 	return nil, errgo.New("too many invalid inputs")
 }
 
-// Prompter is the interface used by the PromptingFiller. It is used to
-// prompt the user for a sequence of form fields and obtain their values.
-type Prompter interface {
-	// ShowTitle displays a form title. It will only be called if the title
-	// of the form is non-empty.
-	ShowTitle(title string) error
-
-	// Prompt prompts for the value of the given named attribute.
-	// It is always acceptable for an implementation to return a string,
-	// which will be coerced to the appropriate type if possible.
-	Prompt(name string, attr environschema.Attr) (interface{}, error)
+func (f IOFiller) printf(format string, a ...interface{}) {
+	fmt.Fprintf(f.Out, format, a...)
 }
 
-// DefaultPrompter is the default Prompter used by a PromptingFiller when
-// Prompter has not been set.
-var DefaultPrompter Prompter = IOPrompter{
-	In:  os.Stdin,
-	Out: os.Stderr,
-}
-
-// IOPrompter is a Prompter based around an io.Reader and io.Writer.
-// It uses Out to print prompts to and reads responses from In.
-type IOPrompter struct {
-	In  io.Reader
-	Out io.Writer
-}
-
-// Prompt implements Prompter.Prompt by writing the field information to
-// p.Out, then reading input from p.In. If p.In is a terminal and the
-// attribute is secret, echo will be disabled.
-func (p IOPrompter) Prompt(name string, attr environschema.Attr) (interface{}, error) {
+func (f IOFiller) prompt(attr NamedAttr, checker schema.Checker, def string) (string, error) {
 	prompt := attr.Description
-	def := DefaultFromEnv(attr)
-	def1 := def
-	if def1 != "" {
+	if def != "" {
 		if attr.Secret {
-			def1 = strings.Repeat("*", len(def))
+			def = strings.Repeat("*", len(def))
 		}
-		prompt = fmt.Sprintf("%s (%s)", attr.Description, def1)
+		prompt = fmt.Sprintf("%s [%s]", attr.Description, def)
 	}
-	_, err := fmt.Fprintf(p.Out, "%s: ", prompt)
-	if err != nil {
-		return "", errgo.Notef(err, "cannot write prompt")
-	}
-	input, err := readLine(p.Out, p.In, attr.Secret)
+	f.printf("%s: ", prompt)
+	input, err := readLine(f.Out, f.In, attr.Secret)
 	if err != nil {
 		return "", errgo.Notef(err, "cannot read input")
 	}
-	if len(input) == 0 {
-		return def, nil
-	}
-	return string(input), nil
+	return input, nil
 }
 
-func readLine(w io.Writer, r io.Reader, secret bool) ([]byte, error) {
+func readLine(w io.Writer, r io.Reader, secret bool) (string, error) {
 	if f, ok := r.(*os.File); ok && secret && terminal.IsTerminal(int(f.Fd())) {
 		defer w.Write([]byte{'\n'})
-		return terminal.ReadPassword(int(f.Fd()))
+		line, err := terminal.ReadPassword(int(f.Fd()))
+		return string(line), err
 	}
 	var input []byte
 	for {
@@ -225,38 +222,29 @@ func readLine(w io.Writer, r io.Reader, secret bool) ([]byte, error) {
 			if err == io.EOF {
 				err = io.ErrUnexpectedEOF
 			}
-			return nil, errgo.Mask(err)
+			return "", errgo.Mask(err)
 		}
 	}
-	if len(input) > 0 && input[len(input)-1] == '\r' {
-		input = input[:len(input)-1]
-	}
-	return input, nil
+	return strings.TrimRight(string(input), "\r"), nil
 }
 
-// DefaultFromEnv atttempts to derive a default value from environment
-// variables. The environment varialbles specified in attr will be
-// checked in order and the first non-empty value found is returned. If
-// no non-empty values are found then "" is returned.
-func DefaultFromEnv(attr environschema.Attr) string {
+// DefaultFromEnv returns any default value found in the environment for
+// the given attribute and, if found, the variable that the value was
+// found in.
+//
+// The environment variables specified in attr will be checked in order
+// and the first non-empty value found is returned. If no non-empty
+// values are found then ("", "") is returned.
+func DefaultFromEnv(attr environschema.Attr) (val, envVar string) {
 	if attr.EnvVar != "" {
-		if env := os.Getenv(attr.EnvVar); env != "" {
-			return env
+		if val := os.Getenv(attr.EnvVar); val != "" {
+			return val, attr.EnvVar
 		}
 	}
 	for _, envVar := range attr.EnvVars {
-		if env := os.Getenv(envVar); env != "" {
-			return env
+		if val := os.Getenv(envVar); val != "" {
+			return val, envVar
 		}
 	}
-	return ""
-}
-
-// ShowTitle implements Prompter.ShowTitle by printing the title to
-// p.Out.
-func (p IOPrompter) ShowTitle(title string) error {
-	if _, err := fmt.Fprintln(p.Out, title); err != nil {
-		return errgo.Notef(err, "cannot show title")
-	}
-	return nil
+	return "", ""
 }

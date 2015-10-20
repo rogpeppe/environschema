@@ -71,6 +71,20 @@ type Attr struct {
 	Values []interface{} `json:"values,omitempty"`
 }
 
+// Checker returns a checker that can be used to coerce values into the
+// type of the attribute. Specifically, string is always supported for
+// any checker type.
+func (attr Attr) Checker() (schema.Checker, error) {
+	checker := checkers[attr.Type]
+	if checker == nil {
+		return nil, fmt.Errorf("invalid type %q", attr.Type)
+	}
+	if len(attr.Values) == 0 {
+		return checker, nil
+	}
+	return oneOfValues(checker, attr.Values)
+}
+
 // Group describes the grouping of attributes.
 type Group string
 
@@ -98,18 +112,27 @@ const (
 type FieldType string
 
 // The following constants are the possible type values.
+// The "canonical Go type" is the type that the will be
+// the result of a successful Coerce call.
 const (
+	// Tstring represents a string type. Its canonical Go type is string.
 	Tstring FieldType = "string"
-	Tbool   FieldType = "bool"
-	Tint    FieldType = "int"
-	Tattrs  FieldType = "attrs"
+
+	// Tbool represents a boolean type. Its canonical Go type is bool.
+	Tbool FieldType = "bool"
+
+	// Tint represents an integer type. Its canonical Go type is int.
+	Tint FieldType = "int"
+
+	// Tattrs represents an attribute map. Its canonical Go type is map[string]string.
+	Tattrs FieldType = "attrs"
 )
 
 var checkers = map[FieldType]schema.Checker{
 	Tstring: schema.String(),
 	Tbool:   schema.Bool(),
 	Tint:    schema.ForceInt(),
-	Tattrs:  attrsC{},
+	Tattrs:  attrsChecker{},
 }
 
 // Alternative possibilities to ValidationSchema to bear in mind for
@@ -129,21 +152,14 @@ func (s Fields) ValidationSchema() (schema.Fields, schema.Defaults, error) {
 	defaults := make(schema.Defaults)
 	for name, attr := range s {
 		path := []string{name}
-		checker := checkers[attr.Type]
-		if checker == nil {
-			return nil, nil, fmt.Errorf("%sinvalid type %q", pathPrefix(path), attr.Type)
+		checker, err := attr.Checker()
+		if err != nil {
+			return nil, nil, errors.Annotatef(err, "%s", mkPath(path))
 		}
-		if attr.Values != nil {
-			var err error
-			checker, err = oneOfValues(checker, attr.Values, path)
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-		fields[name] = checker
 		if !attr.Mandatory {
 			defaults[name] = schema.Omit
 		}
+		fields[name] = checker
 	}
 	return fields, defaults, nil
 }
@@ -151,28 +167,28 @@ func (s Fields) ValidationSchema() (schema.Fields, schema.Defaults, error) {
 // oneOfValues returns a checker that coerces its value
 // using the supplied checker, then checks that the
 // resulting value is equal to one of the given values.
-func oneOfValues(checker schema.Checker, values []interface{}, path []string) (schema.Checker, error) {
+func oneOfValues(checker schema.Checker, values []interface{}) (schema.Checker, error) {
 	cvalues := make([]interface{}, len(values))
 	for i, v := range values {
 		cv, err := checker.Coerce(v, nil)
 		if err != nil {
-			return nil, fmt.Errorf("%sinvalid enumerated value: %v", pathPrefix(path), err)
+			return nil, fmt.Errorf("invalid enumerated value: %v", err)
 		}
 		cvalues[i] = cv
 	}
-	return oneOfValuesC{
+	return oneOfValuesChecker{
 		vals:    cvalues,
 		checker: checker,
 	}, nil
 }
 
-type oneOfValuesC struct {
+type oneOfValuesChecker struct {
 	vals    []interface{}
 	checker schema.Checker
 }
 
 // Coerce implements schema.Checker.Coerce.
-func (c oneOfValuesC) Coerce(v interface{}, path []string) (interface{}, error) {
+func (c oneOfValuesChecker) Coerce(v interface{}, path []string) (interface{}, error) {
 	v, err := c.checker.Coerce(v, path)
 	if err != nil {
 		return v, err
@@ -185,14 +201,14 @@ func (c oneOfValuesC) Coerce(v interface{}, path []string) (interface{}, error) 
 	return nil, fmt.Errorf("%sexpected one of %v, got %#v", pathPrefix(path), c.vals, v)
 }
 
-type attrsC struct{}
+type attrsChecker struct{}
 
 var (
 	attrMapChecker   = schema.Map(schema.String(), schema.String())
 	attrSliceChecker = schema.List(schema.String())
 )
 
-func (c attrsC) Coerce(v interface{}, path []string) (interface{}, error) {
+func (c attrsChecker) Coerce(v interface{}, path []string) (interface{}, error) {
 	// TODO consider allowing only the map variant.
 	switch reflect.TypeOf(v).Kind() {
 	case reflect.String:
@@ -240,13 +256,23 @@ func (c attrsC) Coerce(v interface{}, path []string) (interface{}, error) {
 // the concatenation of the path elements. If path
 // starts with a ".", the dot is omitted.
 func pathPrefix(path []string) string {
+	if p := mkPath(path); p != "" {
+		return p + ": "
+	}
+	return ""
+}
+
+// mkPath returns a string holding
+// the concatenation of the path elements.
+// If path starts with a ".", the dot is omitted.
+func mkPath(path []string) string {
 	if len(path) == 0 {
 		return ""
 	}
 	if path[0] == "." {
-		return strings.Join(path[1:], "") + ": "
+		return strings.Join(path[1:], "")
 	}
-	return strings.Join(path, "") + ": "
+	return strings.Join(path, "")
 }
 
 // ExampleYAML returns the fields formatted as a YAML

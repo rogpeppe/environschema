@@ -99,6 +99,19 @@ type IOFiller struct {
 	// ShowDescriptions holds whether attribute descriptions
 	// should be printed as well as the attribute names.
 	ShowDescriptions bool
+
+	// GetDefault returns the default value for the given attribute,
+	// which must have been coerced using the given checker.
+	// If there is no default, it should return (nil, "", nil).
+	//
+	// The display return value holds the string to use
+	// to describe the value of the default. If it's empty,
+	// fmt.Sprint(val) will be used.
+	//
+	// If GetDefault returns an error, it will be printed as a warning.
+	//
+	// If GetDefault is nil, DefaultFromEnv will be used.
+	GetDefault func(attr NamedAttr, checker schema.Checker) (val interface{}, display string, err error)
 }
 
 // Fill implements Filler.Fill by writing the field information to
@@ -128,6 +141,9 @@ func (f IOFiller) Fill(form Form) (map[string]interface{}, error) {
 	}
 	if f.Out == nil {
 		f.Out = os.Stdout
+	}
+	if f.GetDefault == nil {
+		f.GetDefault = DefaultFromEnv
 	}
 	fields := SortedFields(form.Fields)
 	values := make(map[string]interface{}, len(fields))
@@ -165,19 +181,15 @@ func (f IOFiller) promptLoop(attr NamedAttr, checker schema.Checker, allMandator
 	if f.ShowDescriptions && attr.Description != "" {
 		f.printf("\n%s\n", strings.TrimSpace(attr.Description))
 	}
-	def, envVar := DefaultFromEnv(attr.Attr)
-	var defVal interface{}
-	if def != "" {
-		v, err := checker.Coerce(def, nil)
-		if err != nil {
-			f.printf("Warning: invalid default value in $%s.\n", envVar)
-			def = ""
-		} else {
-			defVal = v
-		}
+	defVal, defDisplay, err := f.GetDefault(attr, checker)
+	if err != nil {
+		f.printf("Warning: invalid default value: %v\n", err)
+	}
+	if defVal != nil && defDisplay == "" {
+		defDisplay = fmt.Sprint(defVal)
 	}
 	for i := 0; i < f.MaxTries; i++ {
-		vStr, err := f.prompt(attr, checker, def)
+		vStr, err := f.prompt(attr, checker, defDisplay)
 		if err != nil {
 			return nil, errgo.Mask(err)
 		}
@@ -260,13 +272,24 @@ func readLine(w io.Writer, r io.Reader, secret bool) (string, error) {
 }
 
 // DefaultFromEnv returns any default value found in the environment for
-// the given attribute and, if found, the variable that the value was
-// found in.
+// the given attribute.
 //
 // The environment variables specified in attr will be checked in order
-// and the first non-empty value found is returned. If no non-empty
-// values are found then ("", "") is returned.
-func DefaultFromEnv(attr environschema.Attr) (val, envVar string) {
+// and the first non-empty value found is coerced using the given
+// checker and returned.
+func DefaultFromEnv(attr NamedAttr, checker schema.Checker) (val interface{}, _ string, err error) {
+	val, envVar := defaultFromEnv(attr)
+	if val == "" {
+		return nil, "", nil
+	}
+	v, err := checker.Coerce(val, nil)
+	if err != nil {
+		return nil, "", errgo.Notef(err, "cannot convert $%s", envVar)
+	}
+	return v, "", nil
+}
+
+func defaultFromEnv(attr NamedAttr) (val, envVar string) {
 	if attr.EnvVar != "" {
 		if val := os.Getenv(attr.EnvVar); val != "" {
 			return val, attr.EnvVar

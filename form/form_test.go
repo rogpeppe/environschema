@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"strings"
 
+	"github.com/juju/schema"
 	"github.com/juju/testing"
 	jc "github.com/juju/testing/checkers"
 	gc "gopkg.in/check.v1"
@@ -25,14 +26,13 @@ var _ = gc.Suite(&formSuite{})
 var _ form.Filler = form.IOFiller{}
 
 var ioFillerTests = []struct {
-	about            string
-	form             form.Form
-	maxTries         int
-	showDescriptions bool
-	environment      map[string]string
-	expectIO         string
-	expectResult     map[string]interface{}
-	expectError      string
+	about        string
+	form         form.Form
+	filler       form.IOFiller
+	environment  map[string]string
+	expectIO     string
+	expectResult map[string]interface{}
+	expectError  string
 }{{
 	about: "no fields, no interaction",
 	form: form.Form{
@@ -406,7 +406,9 @@ var ioFillerTests = []struct {
 			},
 		},
 	},
-	maxTries: 1,
+	filler: form.IOFiller{
+		MaxTries: 1,
+	},
 	expectIO: `
 	|Press return to select a default value, or enter - to omit an entry.
 	|a: »one
@@ -502,7 +504,7 @@ var ioFillerTests = []struct {
 	},
 	expectIO: `
 	|Press return to select a default value, or enter - to omit an entry.
-	|Warning: invalid default value in $a.
+	|Warning: invalid default value: cannot convert $a: expected number, got string("three")
 	|a: »99
 	`,
 	expectResult: map[string]interface{}{
@@ -568,7 +570,9 @@ var ioFillerTests = []struct {
 			},
 		},
 	},
-	showDescriptions: true,
+	filler: form.IOFiller{
+		ShowDescriptions: true,
+	},
 	expectIO: `
 	|Press return to select a default value, or enter - to omit an entry.
 	|
@@ -583,6 +587,95 @@ var ioFillerTests = []struct {
 		"a": "value",
 		"b": 99,
 	},
+}, {
+	about: "custom GetDefault value success",
+	form: form.Form{
+		Fields: environschema.Fields{
+			"a": environschema.Attr{
+				Description: "a description",
+				Type:        environschema.Tstring,
+			},
+		},
+	},
+	filler: form.IOFiller{
+		GetDefault: func(attr form.NamedAttr, checker schema.Checker) (interface{}, string, error) {
+			return "hello", "", nil
+		},
+	},
+	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
+	|a [hello]: »
+	`,
+	expectResult: map[string]interface{}{
+		"a": "hello",
+	},
+}, {
+	about: "custom GetDefault value error",
+	form: form.Form{
+		Fields: environschema.Fields{
+			"a": environschema.Attr{
+				Description: "a description",
+				Type:        environschema.Tstring,
+			},
+		},
+	},
+	filler: form.IOFiller{
+		GetDefault: func(attr form.NamedAttr, checker schema.Checker) (interface{}, string, error) {
+			return nil, "", errgo.New("some error")
+		},
+	},
+	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
+	|Warning: invalid default value: some error
+	|a: »value
+	`,
+	expectResult: map[string]interface{}{
+		"a": "value",
+	},
+}, {
+	about: "custom GetDefault value with custom display",
+	form: form.Form{
+		Fields: environschema.Fields{
+			"a": environschema.Attr{
+				Description: "a description",
+				Type:        environschema.Tint,
+			},
+		},
+	},
+	filler: form.IOFiller{
+		GetDefault: func(attr form.NamedAttr, checker schema.Checker) (interface{}, string, error) {
+			return 99, "ninety-nine", nil
+		},
+	},
+	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
+	|a [ninety-nine]: »
+	`,
+	expectResult: map[string]interface{}{
+		"a": 99,
+	},
+}, {
+	about: "custom GetDefault value with empty display and non-string type",
+	form: form.Form{
+		Fields: environschema.Fields{
+			"a": environschema.Attr{
+				Description: "a description",
+				Type:        environschema.Tint,
+			},
+		},
+	},
+	filler: form.IOFiller{
+		GetDefault: func(attr form.NamedAttr, checker schema.Checker) (interface{}, string, error) {
+			return 99, "", nil
+		},
+	},
+	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
+	|a [99]: »
+	`,
+	expectResult: map[string]interface{}{
+		"a": 99,
+	},
 }}
 
 func (s *formSuite) TestIOFiller(c *gc.C) {
@@ -593,12 +686,9 @@ func (s *formSuite) TestIOFiller(c *gc.C) {
 				defer testing.PatchEnvironment(k, v)()
 			}
 			ioChecker := newInteractionChecker(c, "»", strings.TrimPrefix(unbeautify(test.expectIO), "\n"))
-			ioFiller := form.IOFiller{
-				In:               ioChecker,
-				Out:              ioChecker,
-				MaxTries:         test.maxTries,
-				ShowDescriptions: test.showDescriptions,
-			}
+			ioFiller := test.filler
+			ioFiller.In = ioChecker
+			ioFiller.Out = ioChecker
 			result, err := ioFiller.Fill(test.form)
 			if test.expectError != "" {
 				c.Assert(err, gc.ErrorMatches, test.expectError)
@@ -744,10 +834,14 @@ var defaultFromEnvTests = []struct {
 	about       string
 	environment map[string]string
 	attr        environschema.Attr
-	expect      string
-	expectVar   string
+	expect      interface{}
+	expectError string
 }{{
 	about: "no envvars",
+	attr: environschema.Attr{
+		EnvVar: "A",
+		Type:   environschema.Tstring,
+	},
 }, {
 	about: "matching envvar",
 	environment: map[string]string{
@@ -755,9 +849,9 @@ var defaultFromEnvTests = []struct {
 	},
 	attr: environschema.Attr{
 		EnvVar: "A",
+		Type:   environschema.Tstring,
 	},
-	expect:    "B",
-	expectVar: "A",
+	expect: "B",
 }, {
 	about: "matching envvars",
 	environment: map[string]string{
@@ -765,22 +859,32 @@ var defaultFromEnvTests = []struct {
 	},
 	attr: environschema.Attr{
 		EnvVar:  "A",
+		Type:    environschema.Tstring,
 		EnvVars: []string{"B"},
 	},
-	expect:    "C",
-	expectVar: "B",
+	expect: "C",
 }, {
-	about: "envar takes priority",
+	about: "envvar takes priority",
 	environment: map[string]string{
 		"A": "1",
 		"B": "2",
 	},
 	attr: environschema.Attr{
 		EnvVar:  "A",
+		Type:    environschema.Tstring,
 		EnvVars: []string{"B"},
 	},
-	expect:    "1",
-	expectVar: "A",
+	expect: "1",
+}, {
+	about: "cannot coerce",
+	environment: map[string]string{
+		"A": "B",
+	},
+	attr: environschema.Attr{
+		EnvVar: "A",
+		Type:   environschema.Tint,
+	},
+	expectError: `cannot convert \$A: expected number, got string\("B"\)`,
 }}
 
 func (s *formSuite) TestDefaultFromEnv(c *gc.C) {
@@ -790,9 +894,21 @@ func (s *formSuite) TestDefaultFromEnv(c *gc.C) {
 			for k, v := range test.environment {
 				defer testing.PatchEnvironment(k, v)()
 			}
-			result, resultVar := form.DefaultFromEnv(test.attr)
+			checker, err := test.attr.Checker()
+			c.Assert(err, gc.IsNil)
+			result, display, err := form.DefaultFromEnv(form.NamedAttr{
+				Name: "ignored",
+				Attr: test.attr,
+			}, checker)
+			if test.expectError != "" {
+				c.Assert(err, gc.ErrorMatches, test.expectError)
+				c.Assert(display, gc.Equals, "")
+				c.Assert(result, gc.Equals, nil)
+				return
+			}
+			c.Assert(err, gc.IsNil)
+			c.Assert(display, gc.Equals, "")
 			c.Assert(result, gc.Equals, test.expect)
-			c.Assert(resultVar, gc.Equals, test.expectVar)
 		}()
 	}
 }

@@ -40,7 +40,7 @@ type Filler interface {
 
 // SortedFields returns the given fields sorted first by group name.
 // Those in the same group are sorted so that secret fields come after
-// non-secret ones, finally the fields are sorted by description.
+// non-secret ones, finally the fields are sorted by name.
 func SortedFields(fields environschema.Fields) []NamedAttr {
 	fs := make(namedAttrSlice, 0, len(fields))
 	for k, v := range fields {
@@ -74,7 +74,7 @@ func (s namedAttrSlice) Less(i, j int) bool {
 	if a1.Secret != a2.Secret {
 		return a2.Secret
 	}
-	return a1.Description < a2.Description
+	return a1.Name < a2.Name
 }
 
 func (s namedAttrSlice) Swap(i, j int) {
@@ -95,6 +95,10 @@ type IOFiller struct {
 	// response when prompting. If this is 0 then the default of 3
 	// attempts will be used.
 	MaxTries int
+
+	// ShowDescriptions holds whether attribute descriptions
+	// should be printed as well as the attribute names.
+	ShowDescriptions bool
 }
 
 // Fill implements Filler.Fill by writing the field information to
@@ -113,6 +117,9 @@ type IOFiller struct {
 // validate correctly it will be prompted again up to MaxTries before
 // giving up.
 func (f IOFiller) Fill(form Form) (map[string]interface{}, error) {
+	if len(form.Fields) == 0 {
+		return map[string]interface{}{}, nil
+	}
 	if f.MaxTries == 0 {
 		f.MaxTries = 3
 	}
@@ -125,18 +132,25 @@ func (f IOFiller) Fill(form Form) (map[string]interface{}, error) {
 	fields := SortedFields(form.Fields)
 	values := make(map[string]interface{}, len(fields))
 	checkers := make([]schema.Checker, len(fields))
+	allMandatory := true
 	for i, field := range fields {
 		checker, err := field.Checker()
 		if err != nil {
 			return nil, errgo.Notef(err, "invalid field %s", field.Name)
 		}
 		checkers[i] = checker
+		allMandatory = allMandatory && field.Mandatory
 	}
 	if form.Title != "" {
 		f.printf("%s\n", form.Title)
 	}
+	if allMandatory {
+		f.printf("Press return to select a default value.\n")
+	} else {
+		f.printf("Press return to select a default value, or enter - to omit an entry.\n")
+	}
 	for i, field := range fields {
-		v, err := f.promptLoop(field, checkers[i])
+		v, err := f.promptLoop(field, checkers[i], allMandatory)
 		if err != nil {
 			return nil, errgo.Notef(err, "cannot complete form")
 		}
@@ -147,13 +161,16 @@ func (f IOFiller) Fill(form Form) (map[string]interface{}, error) {
 	return values, nil
 }
 
-func (f IOFiller) promptLoop(attr NamedAttr, checker schema.Checker) (interface{}, error) {
+func (f IOFiller) promptLoop(attr NamedAttr, checker schema.Checker, allMandatory bool) (interface{}, error) {
+	if f.ShowDescriptions && attr.Description != "" {
+		f.printf("\n%s\n", strings.TrimSpace(attr.Description))
+	}
 	def, envVar := DefaultFromEnv(attr.Attr)
 	var defVal interface{}
 	if def != "" {
 		v, err := checker.Coerce(def, nil)
 		if err != nil {
-			f.printf("warning: invalid default value in $%s\n", envVar)
+			f.printf("Warning: invalid default value in $%s.\n", envVar)
 			def = ""
 		} else {
 			defVal = v
@@ -165,6 +182,11 @@ func (f IOFiller) promptLoop(attr NamedAttr, checker schema.Checker) (interface{
 			return nil, errgo.Mask(err)
 		}
 		if vStr == "" {
+			// An empty value has been entered, signifying
+			// that the user has chosen the default value.
+			// If there is no default and the attribute is mandatory,
+			// we treat it as a potentially valid value and
+			// coerce it below.
 			if defVal != nil {
 				return defVal, nil
 			}
@@ -172,12 +194,21 @@ func (f IOFiller) promptLoop(attr NamedAttr, checker schema.Checker) (interface{
 				// No value entered but the attribute is not mandatory.
 				return nil, nil
 			}
+		} else if vStr == "-" && !allMandatory {
+			// The user has entered a hyphen to cause
+			// the attribute to be omitted.
+			if attr.Mandatory {
+				f.printf("Cannot omit %s because it is mandatory.\n", attr.Name)
+				continue
+			}
+			f.printf("Value %s omitted.\n", attr.Name)
+			return nil, nil
 		}
 		v, err := checker.Coerce(vStr, nil)
 		if err == nil {
 			return v, nil
 		}
-		f.printf("invalid input: %v\n", err)
+		f.printf("Invalid input: %v\n", err)
 	}
 	return nil, errgo.New("too many invalid inputs")
 }
@@ -187,12 +218,12 @@ func (f IOFiller) printf(format string, a ...interface{}) {
 }
 
 func (f IOFiller) prompt(attr NamedAttr, checker schema.Checker, def string) (string, error) {
-	prompt := attr.Description
+	prompt := attr.Name
 	if def != "" {
 		if attr.Secret {
 			def = strings.Repeat("*", len(def))
 		}
-		prompt = fmt.Sprintf("%s [%s]", attr.Description, def)
+		prompt = fmt.Sprintf("%s [%s]", attr.Name, def)
 	}
 	f.printf("%s: ", prompt)
 	input, err := readLine(f.Out, f.In, attr.Secret)

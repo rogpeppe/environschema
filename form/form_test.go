@@ -25,24 +25,33 @@ var _ = gc.Suite(&formSuite{})
 var _ form.Filler = form.IOFiller{}
 
 var ioFillerTests = []struct {
-	about        string
-	form         form.Form
-	maxTries     int
-	environment  map[string]string
-	expectIO     string
-	expectResult map[string]interface{}
-	expectError  string
+	about            string
+	form             form.Form
+	maxTries         int
+	showDescriptions bool
+	environment      map[string]string
+	expectIO         string
+	expectResult     map[string]interface{}
+	expectError      string
 }{{
+	about: "no fields, no interaction",
+	form: form.Form{
+		Title: "something",
+	},
+	expectIO:     "",
+	expectResult: map[string]interface{}{},
+}, {
 	about: "single field no default",
 	form: form.Form{
 		Fields: environschema.Fields{
 			"A": environschema.Attr{
 				Type:        environschema.Tstring,
-				Description: "A",
+				Description: "A description",
 			},
 		},
 	},
 	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
 	|A: »B
 	`,
 	expectResult: map[string]interface{}{
@@ -54,7 +63,7 @@ var ioFillerTests = []struct {
 		Fields: environschema.Fields{
 			"A": environschema.Attr{
 				Type:        environschema.Tstring,
-				Description: "A",
+				Description: "A description",
 				EnvVar:      "A",
 			},
 		},
@@ -63,6 +72,7 @@ var ioFillerTests = []struct {
 		"A": "C",
 	},
 	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
 	|A [C]: »B
 	`,
 	expectResult: map[string]interface{}{
@@ -74,7 +84,7 @@ var ioFillerTests = []struct {
 		Fields: environschema.Fields{
 			"A": environschema.Attr{
 				Type:        environschema.Tstring,
-				Description: "A",
+				Description: "A description",
 				EnvVar:      "A",
 			},
 		},
@@ -83,6 +93,7 @@ var ioFillerTests = []struct {
 		"A": "C",
 	},
 	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
 	|A [C]: »
 	`,
 	expectResult: map[string]interface{}{
@@ -94,7 +105,7 @@ var ioFillerTests = []struct {
 		Fields: environschema.Fields{
 			"A": environschema.Attr{
 				Type:        environschema.Tstring,
-				Description: "A",
+				Description: "A description",
 				EnvVar:      "A",
 				Secret:      true,
 			},
@@ -104,6 +115,7 @@ var ioFillerTests = []struct {
 		"A": "password",
 	},
 	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
 	|A [********]: »
 	`,
 	expectResult: map[string]interface{}{
@@ -115,11 +127,12 @@ var ioFillerTests = []struct {
 		Fields: environschema.Fields{
 			"A": environschema.Attr{
 				Type:        environschema.Tstring,
-				Description: "A",
+				Description: "A description",
 			},
 		},
 	},
 	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
 	|A: »B` + "\r" + `
 	`,
 	expectResult: map[string]interface{}{
@@ -129,11 +142,21 @@ var ioFillerTests = []struct {
 	about: "with title",
 	form: form.Form{
 		Title: "Test Title",
+		Fields: environschema.Fields{
+			"A": environschema.Attr{
+				Type:        environschema.Tstring,
+				Description: "A description",
+			},
+		},
 	},
 	expectIO: `
 	|Test Title
+	|Press return to select a default value, or enter - to omit an entry.
+	|A: »hello
 	`,
-	expectResult: map[string]interface{}{},
+	expectResult: map[string]interface{}{
+		"A": "hello",
+	},
 }, {
 	about: "title with prompts",
 	form: form.Form{
@@ -141,12 +164,13 @@ var ioFillerTests = []struct {
 		Fields: environschema.Fields{
 			"A": environschema.Attr{
 				Type:        environschema.Tstring,
-				Description: "A",
+				Description: "A description",
 			},
 		},
 	},
 	expectIO: `
 	|Test Title
+	|Press return to select a default value, or enter - to omit an entry.
 	|A: »B
 	`,
 	expectResult: map[string]interface{}{
@@ -158,39 +182,40 @@ var ioFillerTests = []struct {
 		Fields: environschema.Fields{
 			"a1": environschema.Attr{
 				Group:       "A",
-				Description: "a1",
+				Description: "z a1 description",
 				Type:        environschema.Tstring,
 			},
 			"c1": environschema.Attr{
 				Group:       "A",
-				Description: "c1",
+				Description: "c1 description",
 				Type:        environschema.Tstring,
 			},
 			"b1": environschema.Attr{
 				Group:       "A",
-				Description: "b1",
+				Description: "b1 description",
 				Type:        environschema.Tstring,
 				Secret:      true,
 			},
 			"a2": environschema.Attr{
 				Group:       "B",
-				Description: "a2",
+				Description: "a2 description",
 				Type:        environschema.Tstring,
 			},
 			"c2": environschema.Attr{
 				Group:       "B",
-				Description: "c2",
+				Description: "c2 description",
 				Type:        environschema.Tstring,
 			},
 			"b2": environschema.Attr{
 				Group:       "B",
-				Description: "b2",
+				Description: "b2 description",
 				Type:        environschema.Tstring,
 				Secret:      true,
 			},
 		},
 	},
 	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
 	|a1: »a1
 	|c1: »c1
 	|b1: »b1
@@ -211,21 +236,22 @@ var ioFillerTests = []struct {
 	form: form.Form{
 		Fields: environschema.Fields{
 			"a": environschema.Attr{
-				Description: "a",
+				Description: "a description",
 				Type:        environschema.Tstring,
 			},
 			"b": environschema.Attr{
-				Description: "b",
+				Description: "b description",
 				Type:        environschema.Tstring,
 				Mandatory:   true,
 			},
 			"c": environschema.Attr{
-				Description: "c",
+				Description: "c description",
 				Type:        environschema.Tstring,
 			},
 		},
 	},
 	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
 	|a: »
 	|b: »
 	|c: »something
@@ -239,24 +265,25 @@ var ioFillerTests = []struct {
 	form: form.Form{
 		Fields: environschema.Fields{
 			"a": environschema.Attr{
-				Description: "a",
+				Description: "a description",
 				Type:        environschema.Tbool,
 			},
 			"b": environschema.Attr{
-				Description: "b",
+				Description: "b description",
 				Type:        environschema.Tbool,
 			},
 			"c": environschema.Attr{
-				Description: "c",
+				Description: "c description",
 				Type:        environschema.Tbool,
 			},
 			"d": environschema.Attr{
-				Description: "d",
+				Description: "d description",
 				Type:        environschema.Tbool,
 			},
 		},
 	},
 	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
 	|a: »true
 	|b: »false
 	|c: »1
@@ -273,20 +300,21 @@ var ioFillerTests = []struct {
 	form: form.Form{
 		Fields: environschema.Fields{
 			"a": environschema.Attr{
-				Description: "a",
+				Description: "a description",
 				Type:        environschema.Tint,
 			},
 			"b": environschema.Attr{
-				Description: "b",
+				Description: "b description",
 				Type:        environschema.Tint,
 			},
 			"c": environschema.Attr{
-				Description: "c",
+				Description: "c description",
 				Type:        environschema.Tint,
 			},
 		},
 	},
 	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
 	|a: »0
 	|b: »-1000000
 	|c: »1000000
@@ -301,16 +329,17 @@ var ioFillerTests = []struct {
 	form: form.Form{
 		Fields: environschema.Fields{
 			"a": environschema.Attr{
-				Description: "a",
+				Description: "a description",
 				Type:        environschema.Tattrs,
 			},
 			"b": environschema.Attr{
-				Description: "b",
+				Description: "b description",
 				Type:        environschema.Tattrs,
 			},
 		},
 	},
 	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
 	|a: »x=y z= foo=bar
 	|b: »
 	`,
@@ -322,23 +351,49 @@ var ioFillerTests = []struct {
 		},
 	},
 }, {
+	about: "don't mention hyphen if all entries are mandatory",
+	form: form.Form{
+		Fields: environschema.Fields{
+			"a": environschema.Attr{
+				Description: "a description",
+				Type:        environschema.Tint,
+				Mandatory:   true,
+			},
+			"b": environschema.Attr{
+				Description: "b description",
+				Type:        environschema.Tstring,
+				Mandatory:   true,
+			},
+		},
+	},
+	expectIO: `
+	|Press return to select a default value.
+	|a: »12
+	|b: »-
+	`,
+	expectResult: map[string]interface{}{
+		"a": 12,
+		"b": "-",
+	},
+}, {
 	about: "too many bad responses",
 	form: form.Form{
 		Fields: environschema.Fields{
 			"a": environschema.Attr{
-				Description: "a",
+				Description: "a description",
 				Type:        environschema.Tint,
 				Mandatory:   true,
 			},
 		},
 	},
 	expectIO: `
+	|Press return to select a default value.
 	|a: »one
-	|invalid input: expected number, got string("one")
+	|Invalid input: expected number, got string("one")
 	|a: »
-	|invalid input: expected number, got string("")
+	|Invalid input: expected number, got string("")
 	|a: »three
-	|invalid input: expected number, got string("three")
+	|Invalid input: expected number, got string("three")
 	`,
 	expectError: `cannot complete form: too many invalid inputs`,
 }, {
@@ -346,15 +401,16 @@ var ioFillerTests = []struct {
 	form: form.Form{
 		Fields: environschema.Fields{
 			"a": environschema.Attr{
-				Description: "a",
+				Description: "a description",
 				Type:        environschema.Tint,
 			},
 		},
 	},
 	maxTries: 1,
 	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
 	|a: »one
-	|invalid input: expected number, got string("one")
+	|Invalid input: expected number, got string("one")
 	`,
 	expectError: `cannot complete form: too many invalid inputs`,
 }, {
@@ -362,16 +418,17 @@ var ioFillerTests = []struct {
 	form: form.Form{
 		Fields: environschema.Fields{
 			"a": environschema.Attr{
-				Description: "a",
+				Description: "a description",
 				Type:        environschema.Tint,
 			},
 		},
 	},
 	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
 	|a: »one
-	|invalid input: expected number, got string("one")
+	|Invalid input: expected number, got string("one")
 	|a: »two
-	|invalid input: expected number, got string("two")
+	|Invalid input: expected number, got string("two")
 	|a: »3
 	`,
 	expectResult: map[string]interface{}{
@@ -382,20 +439,21 @@ var ioFillerTests = []struct {
 	form: form.Form{
 		Fields: environschema.Fields{
 			"a": environschema.Attr{
-				Description: "a",
+				Description: "a description",
 				Type:        environschema.Tstring,
 			},
 			"b": environschema.Attr{
-				Description: "b",
+				Description: "b description",
 				Type:        environschema.Tint,
 			},
 			"c": environschema.Attr{
-				Description: "c",
+				Description: "c description",
 				Type:        environschema.Tbool,
 			},
 		},
 	},
 	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
 	|a: »
 	|b: »
 	|c: »
@@ -406,7 +464,7 @@ var ioFillerTests = []struct {
 	form: form.Form{
 		Fields: environschema.Fields{
 			"a": environschema.Attr{
-				Description: "a",
+				Description: "a description",
 				Type:        "bogus",
 			},
 		},
@@ -418,11 +476,11 @@ var ioFillerTests = []struct {
 		Title: "some title",
 		Fields: environschema.Fields{
 			"a": environschema.Attr{
-				Description: "a",
+				Description: "a description",
 				Type:        environschema.Tstring,
 			},
 			"b": environschema.Attr{
-				Description: "b",
+				Description: "b description",
 				Type:        "bogus",
 			},
 		},
@@ -433,21 +491,97 @@ var ioFillerTests = []struct {
 	environment: map[string]string{
 		"a": "three",
 	},
-	expectIO: `
-	|warning: invalid default value in $a
-	|a: »99
-	`,
 	form: form.Form{
 		Fields: environschema.Fields{
 			"a": environschema.Attr{
-				Description: "a",
+				Description: "a description",
 				Type:        environschema.Tint,
 				EnvVars:     []string{"a"},
 			},
 		},
 	},
+	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
+	|Warning: invalid default value in $a.
+	|a: »99
+	`,
 	expectResult: map[string]interface{}{
 		"a": 99,
+	},
+}, {
+	about: "entering a hyphen causes an optional value to be omitted",
+	environment: map[string]string{
+		"a": "29",
+	},
+	form: form.Form{
+		Fields: environschema.Fields{
+			"a": environschema.Attr{
+				Description: "a description",
+				Type:        environschema.Tint,
+				EnvVar:      "a",
+			},
+		},
+	},
+	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
+	|a [29]: »-
+	|Value a omitted.
+	`,
+	expectResult: map[string]interface{}{},
+}, {
+	about: "entering a hyphen causes a mandatory value to be fail when there are other optional values",
+	form: form.Form{
+		Fields: environschema.Fields{
+			"a": environschema.Attr{
+				Description: "a description",
+				Type:        environschema.Tint,
+				Mandatory:   true,
+			},
+			"b": environschema.Attr{
+				Description: "b description",
+				Type:        environschema.Tint,
+			},
+		},
+	},
+	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
+	|a: »-
+	|Cannot omit a because it is mandatory.
+	|a: »123
+	|b: »99
+	`,
+	expectResult: map[string]interface{}{
+		"a": 123,
+		"b": 99,
+	},
+}, {
+	about: "descriptions can be enabled with ShowDescriptions",
+	form: form.Form{
+		Fields: environschema.Fields{
+			"a": environschema.Attr{
+				Description: "  The a attribute\nis pretty boring.\n\n",
+				Type:        environschema.Tstring,
+				Mandatory:   true,
+			},
+			"b": environschema.Attr{
+				Type: environschema.Tint,
+			},
+		},
+	},
+	showDescriptions: true,
+	expectIO: `
+	|Press return to select a default value, or enter - to omit an entry.
+	|
+	|The a attribute
+	|is pretty boring.
+	|a: »-
+	|Cannot omit a because it is mandatory.
+	|a: »value
+	|b: »99
+	`,
+	expectResult: map[string]interface{}{
+		"a": "value",
+		"b": 99,
 	},
 }}
 
@@ -460,9 +594,10 @@ func (s *formSuite) TestIOFiller(c *gc.C) {
 			}
 			ioChecker := newInteractionChecker(c, "»", strings.TrimPrefix(unbeautify(test.expectIO), "\n"))
 			ioFiller := form.IOFiller{
-				In:       ioChecker,
-				Out:      ioChecker,
-				MaxTries: test.maxTries,
+				In:               ioChecker,
+				Out:              ioChecker,
+				MaxTries:         test.maxTries,
+				ShowDescriptions: test.showDescriptions,
 			}
 			result, err := ioFiller.Fill(test.form)
 			if test.expectError != "" {
@@ -487,12 +622,12 @@ func (s *formSuite) TestIOFillerReadError(c *gc.C) {
 	result, err := ioFiller.Fill(form.Form{
 		Fields: environschema.Fields{
 			"a": environschema.Attr{
-				Description: "a",
+				Description: "a description",
 				Type:        environschema.Tstring,
 			},
 		},
 	})
-	c.Check(out.String(), gc.Equals, "a: ")
+	c.Check(out.String(), gc.Equals, "Press return to select a default value, or enter - to omit an entry.\na: ")
 	c.Assert(err, gc.ErrorMatches, `cannot complete form: cannot read input: some read error`)
 	c.Assert(result, gc.IsNil)
 	// Verify that the cause is masked. Maybe it shouldn't
@@ -510,12 +645,12 @@ func (s *formSuite) TestIOFillerUnexpectedEOF(c *gc.C) {
 	result, err := ioFiller.Fill(form.Form{
 		Fields: environschema.Fields{
 			"a": environschema.Attr{
-				Description: "a",
+				Description: "a description",
 				Type:        environschema.Tstring,
 			},
 		},
 	})
-	c.Check(out.String(), gc.Equals, "a: ")
+	c.Check(out.String(), gc.Equals, "Press return to select a default value, or enter - to omit an entry.\na: ")
 	c.Assert(err, gc.ErrorMatches, `cannot complete form: cannot read input: unexpected EOF`)
 	c.Assert(result, gc.IsNil)
 }
@@ -524,33 +659,33 @@ func (s *formSuite) TestSortedFields(c *gc.C) {
 	fields := environschema.Fields{
 		"a1": environschema.Attr{
 			Group:       "A",
-			Description: "a1",
+			Description: "a1 description",
 			Type:        environschema.Tstring,
 		},
 		"c1": environschema.Attr{
 			Group:       "A",
-			Description: "c1",
+			Description: "c1 description",
 			Type:        environschema.Tstring,
 		},
 		"b1": environschema.Attr{
 			Group:       "A",
-			Description: "b1",
+			Description: "b1 description",
 			Type:        environschema.Tstring,
 			Secret:      true,
 		},
 		"a2": environschema.Attr{
 			Group:       "B",
-			Description: "a2",
+			Description: "a2 description",
 			Type:        environschema.Tstring,
 		},
 		"c2": environschema.Attr{
 			Group:       "B",
-			Description: "c2",
+			Description: "c2 description",
 			Type:        environschema.Tstring,
 		},
 		"b2": environschema.Attr{
 			Group:       "B",
-			Description: "b2",
+			Description: "b2 description",
 			Type:        environschema.Tstring,
 			Secret:      true,
 		},
@@ -559,38 +694,38 @@ func (s *formSuite) TestSortedFields(c *gc.C) {
 		Name: "a1",
 		Attr: environschema.Attr{
 			Group:       "A",
-			Description: "a1",
+			Description: "a1 description",
 			Type:        environschema.Tstring,
 		}}, {
 		Name: "c1",
 		Attr: environschema.Attr{
 			Group:       "A",
-			Description: "c1",
+			Description: "c1 description",
 			Type:        environschema.Tstring,
 		}}, {
 		Name: "b1",
 		Attr: environschema.Attr{
 			Group:       "A",
-			Description: "b1",
+			Description: "b1 description",
 			Type:        environschema.Tstring,
 			Secret:      true,
 		}}, {
 		Name: "a2",
 		Attr: environschema.Attr{
 			Group:       "B",
-			Description: "a2",
+			Description: "a2 description",
 			Type:        environschema.Tstring,
 		}}, {
 		Name: "c2",
 		Attr: environschema.Attr{
 			Group:       "B",
-			Description: "c2",
+			Description: "c2 description",
 			Type:        environschema.Tstring,
 		}}, {
 		Name: "b2",
 		Attr: environschema.Attr{
 			Group:       "B",
-			Description: "b2",
+			Description: "b2 description",
 			Type:        environschema.Tstring,
 			Secret:      true,
 		},

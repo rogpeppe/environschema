@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 
@@ -12,16 +13,22 @@ import (
 	"gopkg.in/juju/environschema.v1/form"
 )
 
+var showDescriptions = flag.Bool("v", false, "show descriptions")
+
 func main() {
-	var f form.IOFiller
+	flag.Parse()
+
+	f := form.IOFiller{
+		ShowDescriptions: *showDescriptions,
+	}
 	fmt.Println(`formtest:
 This is a simple interactive test program for environschema forms.
 Expect the prompts to be as follows:
 
-Name:
-e-mail (user@example.com):
-PIN (****):
-Password:
+e-mail [user@example.com]:
+name:
+password: 
+PIN [****]: 
 
 The entered values will be displayed at the end.
 `)
@@ -31,21 +38,23 @@ The entered values will be displayed at the end.
 		Title: "Test Form",
 		Fields: environschema.Fields{
 			"name": environschema.Attr{
-				Description: "Name",
+				Description: "Your full name.",
 				Type:        environschema.Tstring,
+				Mandatory: true,
 			},
 			"email": environschema.Attr{
-				Description: "e-mail",
+				Description: "Your email address.",
 				Type:        environschema.Tstring,
 				EnvVar:      "EMAIL",
 			},
 			"password": environschema.Attr{
-				Description: "Password",
+				Description: "Your very secret password.",
 				Type:        environschema.Tstring,
 				Secret:      true,
+				Mandatory: true,
 			},
 			"pin": environschema.Attr{
-				Description: "PIN",
+				Description: "Some PIN that you have probably forgotten.",
 				Type:        environschema.Tint,
 				EnvVar:      "PIN",
 				Secret:      true,

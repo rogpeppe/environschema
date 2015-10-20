@@ -124,7 +124,7 @@ func (c *interactionChecker) Write(buf []byte) (int, error) {
 	}
 	checkData := io.data[0:len(buf)]
 	if string(buf) != checkData {
-		c.c.Fatalf("unexpected write got %q want %q", buf, checkData)
+		c.c.Fatalf("unexpected write got %q want %q", buf, io.data)
 	}
 	io.data = io.data[len(buf):]
 	if len(io.data) == 0 {

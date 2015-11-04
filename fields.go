@@ -92,20 +92,20 @@ type Group string
 const (
 	// JujuGroup groups attributes defined by Juju that may
 	// not be specified by a user.
-	JujuGroup = "juju"
+	JujuGroup Group = "juju"
 
 	// EnvironGroup groups attributes that are defined across all
 	// possible Juju environments.
-	EnvironGroup = "environ"
+	EnvironGroup Group = "environ"
 
 	// AccountGroup groups attributes that define a user account
 	// used by a provider.
-	AccountGroup = "account"
+	AccountGroup Group = "account"
 
 	// ProviderGroup groups attributes defined by the provider
 	// that are not account credentials. This is also the default
 	// group.
-	ProviderGroup = ""
+	ProviderGroup Group = ""
 )
 
 // FieldType describes the type of an attribute value.
